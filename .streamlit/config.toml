@@ -1,0 +1,5 @@
+[server]
+server.maxUploadSize = 2000
+enableXsrfProtection = false
+fileWatcherType = "none"
+runOnSave = true
