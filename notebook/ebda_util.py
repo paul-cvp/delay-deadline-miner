@@ -44,6 +44,7 @@ def handle_timed_condition_subprocess(graph, delay_cutoff: timedelta = timedelta
                 if source not in graph.subprocesses:
                     condition_subprocess = f'{source}_completed'
                     graph.subprocesses[condition_subprocess] = {source}
+                    graph.subprocess_map[source] = condition_subprocess
                     source_condition_remapping[source] = condition_subprocess
                     graph.events.add(condition_subprocess)
                     graph.labels.add(condition_subprocess)
@@ -97,10 +98,25 @@ def handle_timed_condition_subprocess(graph, delay_cutoff: timedelta = timedelta
                 updated_targets.add(target)
         graph.includes[source] = updated_targets
 
-    # Step 9: Deduplicate conditions and timedconditions: keep only subprocess/nestedgroup sources
-    # for target, sources in list(graph.conditions.items()):
+    # Step 9: Deduplicate timedconditions: keep only subprocess/nestedgroup timedcondition when the delay and target are the same
 
+    hierarchical_events = set(graph.subprocesses.keys()).union(graph.nestedgroups.keys())
+    atomic_events = graph.events.difference(hierarchical_events)
 
+    for ae in atomic_events:
+        for target, sources in list(graph.timedconditions.items()):
+            if ae in sources.keys():
+                hie = ae
+                run = True
+                while run:
+                    if hie:
+                        hie = graph.hierarchy_map.get(hie,{'name':None})['name']
+                        if hie in sources and sources[hie]==sources[ae]:
+                            # print(target, ae, hie)
+                            del graph.timedconditions[target][ae]
+                            graph.conditions[target].remove(ae)
+                    else:
+                        run = False
     return graph
 
 # def handle_timed_condition_subprocess(graph, delay_cutoff: timedelta = timedelta(hours=1)):

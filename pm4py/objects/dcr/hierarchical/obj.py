@@ -1,63 +1,54 @@
-"""
-This module extends the MilestoneNoResponseDcrGraph class to include support for
-nested groups and subprocesses within Dynamic Condition Response (DCR) Graphs.
-
-The module adds functionality to handle hierarchical structures in DCR Graphs,
-allowing for more complex process models with nested elements and subprocesses.
-
-Classes:
-    NestingSubprocessDcrGraph: Extends MilestoneNoResponseDcrGraph to include nested groups and subprocesses.
-
-This class provides methods to manage and manipulate nested groups and subprocesses
-within a DCR Graph, enhancing the model's ability to represent complex organizational
-structures and process hierarchies.
-
-References
-----------
-.. [1] Hildebrandt, T., Mukkamala, R.R., Slaats, T. (2012). Nested Dynamic Condition Response Graphs. In: Arbab, F., Sirjani, M. (eds) Fundamentals of Software Engineering. FSEN 2011. Lecture Notes in Computer Science, vol 7141. Springer, Berlin, Heidelberg. `DOI <https://doi.org/10.1007/978-3-642-29320-7_23>`_.
-
-.. [2] Normann, H., Debois, S., Slaats, T., Hildebrandt, T.T. (2021). Zoom and Enhance: Action Refinement via Subprocesses in Timed Declarative Processes. In: Polyvyanyy, A., Wynn, M.T., Van Looy, A., Reichert, M. (eds) Business Process Management. BPM 2021. Lecture Notes in Computer Science(), vol 12875. Springer, Cham. `DOI <https://doi.org/10.1007/978-3-030-85469-0_12>`_.
-"""
 from pm4py.objects.dcr.extended.obj import ExtendedDcrGraph
 from typing import Set, Dict
 
 
 class HierarchicalDcrGraph(ExtendedDcrGraph):
     """
-    This class extends the MilestoneNoResponseDcrGraph to include nested groups
-    and subprocesses, allowing for more complex hierarchical structures in DCR Graphs.
+    Extends the MilestoneNoResponseDcrGraph to include nested groups
+    and subprocesses, supporting hierarchical structures in DCR Graphs.
 
     Attributes
     ----------
     self.__nestedgroups: Dict[str, Set[str]]
-        A dictionary mapping group names to sets of event IDs within each group.
+        Maps group names to sets of event IDs.
     self.__subprocesses: Dict[str, Set[str]]
-        A dictionary mapping subprocess names to sets of event IDs within each subprocess.
+        Maps subprocess names to sets of event IDs.
     self.__nestedgroups_map: Dict[str, str]
-        A dictionary mapping event IDs to their corresponding group names.
+        Maps event IDs to their group names.
+    self.__subprocess_map: Dict[str, str]
+        Maps event IDs to their subprocess names.
 
     Methods
     -------
     obj_to_template(self) -> dict:
-        Converts the object to a template dictionary, including nested groups and subprocesses.
-
+        Returns a dictionary representation of the graph, including hierarchy info.
     """
+
     def __init__(self, template=None):
         super().__init__(template)
-        self.__nestedgroups = {} if template is None else template['nestedgroups']
-        self.__subprocesses = {} if template is None else template['subprocesses']
-        self.__nestedgroups_map = {} if template is None else template['nestedgroupsMap']
-        if len(self.__nestedgroups_map) == 0 and len(self.__nestedgroups) > 0:
-            self.__nestedgroups_map = {}
-            for group, events in self.__nestedgroups.items():
-                for e in events:
-                    self.__nestedgroups_map[e] = group
+        self.__nestedgroups = {} if template is None else template.get('nestedgroups', {})
+        self.__subprocesses = {} if template is None else template.get('subprocesses', {})
+        self.__nestedgroups_map = {} if template is None else template.get('nestedgroupsMap', {})
+        self.__subprocess_map = {} if template is None else template.get('subprocessMap', {})
+
+        # Build nestedgroups_map if missing
+        if not self.__nestedgroups_map and self.__nestedgroups:
+            self.__nestedgroups_map = {
+                e: group for group, events in self.__nestedgroups.items() for e in events
+            }
+
+        # Build subprocess_map if missing
+        if not self.__subprocess_map and self.__subprocesses:
+            self.__subprocess_map = {
+                e: sp for sp, events in self.__subprocesses.items() for e in events
+            }
 
     def obj_to_template(self):
         res = super().obj_to_template()
         res['nestedgroups'] = self.__nestedgroups
         res['subprocesses'] = self.__subprocesses
         res['nestedgroupsMap'] = self.__nestedgroups_map
+        res['subprocessMap'] = self.__subprocess_map
         return res
 
     @property
@@ -83,3 +74,40 @@ class HierarchicalDcrGraph(ExtendedDcrGraph):
     @subprocesses.setter
     def subprocesses(self, sps):
         self.__subprocesses = sps
+
+    @property
+    def subprocess_map(self) -> Dict[str, str]:
+        return self.__subprocess_map
+
+    @subprocess_map.setter
+    def subprocess_map(self, spm):
+        self.__subprocess_map = spm
+
+    @property
+    def hierarchy_map(self) -> Dict[str, Dict[str, str]]:
+        """
+        Returns a merged view of nestedgroups_map and subprocess_map,
+        assuming an event can belong to only one: either a group or a subprocess.
+
+        Format:
+        {
+            "event_id": {"type": "group" | "subprocess", "name": "group_or_subprocess_name"},
+            ...
+        }
+        """
+        merged = {}
+
+        # Add group entries
+        for event_id, group in self.__nestedgroups_map.items():
+            merged[event_id] = {"type": "group", "name": group}
+
+        # Add subprocess entries (only if not already in groups)
+        for event_id, subprocess in self.__subprocess_map.items():
+            if event_id in merged:
+                raise ValueError(
+                    f"Conflict: Event '{event_id}' cannot belong to both a group and a subprocess."
+                )
+            merged[event_id] = {"type": "subprocess", "name": subprocess}
+
+        return merged
+
